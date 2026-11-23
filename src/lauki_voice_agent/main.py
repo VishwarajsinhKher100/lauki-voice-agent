@@ -1,3 +1,4 @@
+import asyncio
 from dotenv import load_dotenv
 
 _ = load_dotenv()
@@ -19,7 +20,9 @@ from .tools import lauki_agent
 
 def _is_tool_token(item: object) -> bool:
     """Filter out ToolMessages emitted by LangGraph so tool outputs don't hit TTS."""
-    return isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], ToolMessage)
+    return (
+        isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], ToolMessage)
+    )
 
 
 class SpeechOnlyGraph:
@@ -52,21 +55,27 @@ server = AgentServer()
 
 @server.rtc_session()
 async def entrypoint(ctx: JobContext):
-    # Initialize the voice session with STT, TTS, and Silero VAD
     session = AgentSession(
         stt=deepgram.STT(model=settings.stt_model, language=settings.stt_language),
-        tts=deepgram.TTS(),
+        tts=deepgram.TTS(model=settings.tts_model),
         vad=silero.VAD.load(),
     )
 
-    # Start the agent in the room
     await session.start(agent=LaukiVoiceAgent(), room=ctx.room)
 
-    # Send initial greeting
     await session.generate_reply(
         user_input="Greet the user as Lauki Phones customer assistant and ask how you can help."
     )
 
 
+def main() -> None:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        cli.run_app(server)
+    finally:
+        loop.close()
+
+
 if __name__ == "__main__":
-    cli.run_app(server)
+    main()

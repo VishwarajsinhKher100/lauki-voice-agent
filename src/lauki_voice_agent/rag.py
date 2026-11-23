@@ -1,10 +1,21 @@
 import sys
+from functools import lru_cache
 
 from langchain_groq import ChatGroq
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
 
 from .config import settings
+
+
+@lru_cache(maxsize=1)
+def get_embedder() -> SentenceTransformer:
+    return SentenceTransformer(settings.embedding_model)
+
+
+@lru_cache(maxsize=1)
+def get_client() -> QdrantClient:
+    return QdrantClient(path=settings.qdrant_path)
 
 
 def retrieve(
@@ -45,9 +56,9 @@ def rag(query: str, top_k: int = 5, client=None, embedder=None):
         tuple: (answer_text, context_used)
     """
     if embedder is None:
-        embedder = SentenceTransformer(settings.embedding_model)
+        embedder = get_embedder()
     if client is None:
-        client = QdrantClient(path=settings.qdrant_path)
+        client = get_client()
 
     # Step 1 — Retrieve
     chunks = retrieve(client, embedder, query, top_k=top_k)

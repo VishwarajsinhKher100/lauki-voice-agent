@@ -1,77 +1,107 @@
-# **Lauki Voice Agent** : Real-Time Customer Support Voice Assistant
+# Lauki Phones Voice Support
 
-A real-time, voice-first customer support agent built for telecom services using **LiveKit**, **Deepgram**, **Groq** (openai/gpt-oss-120b), **Qdrant**, and **Docling**[cite: 1, 2, 3]. The system features high-speed Speech-to-Text (STT), Text-to-Speech (TTS), and Voice Activity Detection (VAD) coupled with a Retrieval-Augmented Generation (RAG) pipeline and autonomous customer service tools[cite: 2, 3, 5].
+A voice-first customer support demo for Lauki Phones. Record a question in the Streamlit app and receive a spoken response about mobile plans, billing, account usage, and network coverage.
 
-## **Features**
+The app uses Deepgram for speech recognition and speech generation, Groq with a LangGraph agent for responses and tool use, and local Qdrant vector search for answers grounded in the PDF documents in `docs/`. Account and network lookups currently use mock data defined in `src/lauki_voice_agent/tools.py`.
 
-* **Real-Time Voice Streaming**: Ultra-low-latency voice interactions powered by LiveKit RTC session management, Deepgram STT/TTS, and Silero VAD.
+## What it can do
 
-* **Hierarchical Document Ingestion**: Converts and chunks telecom documentation using Docling's hierarchical chunker, preserving heading breadcrumbs for contextual vector search[cite: 2].
+- Answer plan and pricing questions using the indexed PDFs.
+- Look up sample account balances and usage for mock customer phone numbers.
+- Check mock 4G/5G coverage by region.
+- Recommend a plan and provide plan details.
+- Create a demo support escalation ticket.
+- Optionally run a separate LiveKit real-time voice agent.
 
-* **Domain-Specific RAG**: Qdrant-backed vector search with sentence embeddings to retrieve accurate plan specs, limits, and pricing[cite: 2, 4].
+## Requirements
 
-* **Autonomous Tool Execution**: Context-aware tool calling for plan recommendations, account balances, network coverage checks, plan details, and automated ticket escalation[cite: 5].
+- Python 3.14 or newer
+- [uv](https://docs.astral.sh/uv/)
+- A Groq API key
+- A Deepgram API key for microphone transcription and spoken replies
 
-* **Voice-Optimized Response Filtering**: Custom speech graph wrapping filters internal tool execution tokens from the audio generation pipeline to keep speech responses natural and conversational[cite: 3, 5].
+## Set up
 
-## **Tech Stack**
+Clone the repository and install its dependencies:
 
-| Component                    | Technology                          |
-|------------------------------|-------------------------------------|
-| Voice Infrastructure         | LiveKit Agents & WebRTC             |
-| Speech-to-Text (STT)         | Deepgram (Nova-3)                   |
-| Text-to-Speech (TTS)         | Deepgram (Aura)                     |
-| Voice Activity Detection     | Silero VAD                          |
-| Agent Framework              | LangChain & LangGraph               |
-| LLM Provider                 | Groq (openai/gpt-oss-120b)          |
-| Vector DB                    | Qdrant Client                       |
-| Embedding Model              | SentenceTransformers (all-MiniLM-L6-v2) |
-| Document Parsing & Chunking  | Docling (HierarchicalChunker)       |
-
-## **Setup Instructions**
-
-### 1. Clone the Repository
 ```bash
 git clone https://github.com/VishwarajsinhKher100/lauki-voice-agent.git
-```
-
-### 2. Set Up Virtual Environment
-```bash
-uv venv
-```
-
-#### Activate the virtual environment:
-
-```bash
-.venv\Scripts\activate     # On Windows
-# OR
-source .venv/bin/activate  # On Linux/macOS:
-```
-
-### 3. Install Dependencies
-
-```bash
+cd lauki-voice-agent
 uv sync
 ```
 
-### 4. Configure Environment Variables
+Create a `.env` file in the project root:
 
-Create a .env file in the project root:
-
-```bash
-GROQ_API_KEY=your_groq_api_key_here
-
+```dotenv
+GROQ_API_KEY=your_groq_api_key
 DEEPGRAM_API_KEY=your_deepgram_api_key
 
+# Only needed for the optional LiveKit agent:
 LIVEKIT_URL=
-LIVEKIT_API_KEY=your_livekit_api_key
+LIVEKIT_API_KEY=
 LIVEKIT_API_SECRET=
 ```
 
-### 5. Running the Application
+Keep API keys private and do not commit `.env`.
 
-Launch the Streamlit web application:
+## Start the Streamlit app
 
 ```bash
-python -m src.lauki_voice_agent.main
+uv run streamlit run app.py
+```
+
+Open the local URL printed by Streamlit and allow microphone access in your browser. The app transcribes each recording, sends the question to the support agent, and plays a spoken reply when Deepgram TTS is available.
+
+## Index the support documents
+
+The repository includes plan, billing FAQ, and network coverage PDFs in `docs/`. To rebuild the local Qdrant index from those files, run:
+
+```bash
+uv run python -m src.lauki_voice_agent.ingest
+```
+
+Ingestion uses Docling to parse and chunk the PDFs and Sentence Transformers to create embeddings. It replaces the existing `telecom_docs` collection at the configured Qdrant path, so back up any data you need before rebuilding. The embedding model may be downloaded the first time ingestion runs.
+
+## Run the optional LiveKit agent
+
+Set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` in `.env`, then start the agent:
+
+```bash
+uv run lauki-voice-agent dev
+```
+
+This is a separate LiveKit entry point; it is not required to run the Streamlit app.
+
+## Configuration
+
+Settings can be provided through `.env`. Defaults are defined in `src/lauki_voice_agent/config.py`.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `GROQ_API_KEY` | Not set | Required for agent responses |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | Groq chat model |
+| `DEEPGRAM_API_KEY` | Not set | Required for transcription; used for spoken replies |
+| `STT_MODEL` | `nova-3` | Deepgram speech recognition model |
+| `STT_LANGUAGE` | `en-US` | Speech recognition language |
+| `TTS_MODEL` | `aura-asteria-en` | Deepgram speech generation model |
+| `DOCS_DIR` | `docs` | Directory containing source PDFs |
+| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence Transformers model |
+| `QDRANT_PATH` | `./data/qdrant` | Local Qdrant storage directory |
+| `COLLECTION_NAME` | `telecom_docs` | Qdrant collection used for document search |
+| `LIVEKIT_URL` | Not set | LiveKit server URL for the optional agent |
+| `LIVEKIT_API_KEY` | Not set | LiveKit API key for the optional agent |
+| `LIVEKIT_API_SECRET` | Not set | LiveKit API secret for the optional agent |
+
+## Project layout
+
+```text
+app.py                         Streamlit voice support interface
+docs/                          Source support PDFs
+src/lauki_voice_agent/
+  config.py                    Environment-based settings
+  ingest.py                    PDF parsing, embedding, and Qdrant indexing
+  main.py                      Optional LiveKit voice agent
+  rag.py                       Local Qdrant retrieval
+  tools.py                     Support tools and LangGraph agent
+data/qdrant/                   Local vector database
 ```

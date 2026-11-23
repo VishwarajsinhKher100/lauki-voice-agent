@@ -1,35 +1,12 @@
-import logging
+import re
 from datetime import datetime
 
-from langchain.agents import create_agent
 from langchain_core.tools import tool
 from langchain_groq import ChatGroq
-from qdrant_client import QdrantClient
-from sentence_transformers import SentenceTransformer
+from langgraph.prebuilt import create_react_agent
 
 from .config import settings
-from .rag import retrieve, build_context
-
-logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Shared singletons
-# ---------------------------------------------------------------------------
-
-embedder = SentenceTransformer(settings.embedding_model)
-qdrant = QdrantClient(path=settings.qdrant_path)
-
-try:
-    if qdrant.collection_exists(settings.collection_name):
-        _count = qdrant.get_collection(settings.collection_name).points_count
-        print(f"[OK] Connected to '{settings.collection_name}' — {_count} points")
-    else:
-        logger.warning(
-            f"Collection '{settings.collection_name}' does not exist yet. Run `python ingest.py` first."
-        )
-except Exception as exc:
-    logger.warning(f"Unable to access Qdrant collection on startup: {exc}")
-
+from .rag import build_context, get_client, get_embedder, retrieve
 
 # ---------------------------------------------------------------------------
 # Mock data
@@ -92,7 +69,11 @@ MOCK_PLANS_DB = {
         "data": "2 GB",
         "voice": "300 minutes",
         "sms": "100 SMS",
-        "benefits": ["Free data rollover", "Priority customer support", "1 month free Netflix"],
+        "benefits": [
+            "Free data rollover",
+            "Priority customer support",
+            "1 month free Netflix",
+        ],
     },
     "Lauki Elite 5GB": {
         "price": 899,
@@ -100,7 +81,11 @@ MOCK_PLANS_DB = {
         "data": "5 GB",
         "voice": "1000 minutes",
         "sms": "500 SMS",
-        "benefits": ["Unlimited data rollover", "24/7 priority support", "Netflix + Amazon Prime"],
+        "benefits": [
+            "Unlimited data rollover",
+            "24/7 priority support",
+            "Netflix + Amazon Prime",
+        ],
     },
     "Lauki Lite 500MB": {
         "price": 99,
@@ -126,12 +111,13 @@ MOCK_NETWORK_STATUS = {
 # LangChain tools
 # ---------------------------------------------------------------------------
 
+
 @tool
 def search_plans(query: str) -> str:
     """Search Lauki Phones' plan database and documentation for information about
     data plans, pricing, validity, voice minutes, SMS limits, and benefits."""
     try:
-        chunks = retrieve(qdrant, embedder, query, top_k=5)
+        chunks = retrieve(get_client(), get_embedder(), query, top_k=5)
         if not chunks:
             return "No relevant information found in the documentation."
         return build_context(chunks)
@@ -143,20 +129,26 @@ def search_plans(query: str) -> str:
 def check_account_balance(phone_number: str) -> str:
     """Check the account balance, remaining data, voice minutes, and SMS for a customer.
     Requires a 10-digit phone number (e.g., 9876543210)."""
-    phone_number = phone_number.strip()
+    digits = re.sub(r"\D", "", phone_number)
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    elif len(digits) == 11 and digits.startswith("0"):
+        digits = digits[1:]
 
-    if not phone_number.isdigit() or len(phone_number) != 10:
+    if len(digits) != 10:
         return (
             "Invalid phone number. Please provide a valid 10-digit Indian mobile number "
             "(e.g., 9876543210)."
         )
 
-    customer = MOCK_CUSTOMER_DB.get(phone_number)
+    customer = MOCK_CUSTOMER_DB.get(digits)
     if not customer:
-        return f"No account found for {phone_number}. Please verify the number."
+        return f"No account found for {digits}. Please verify the number."
 
     if customer["balance_type"] == "postpaid":
-        balance_info = f"Postpaid account. Outstanding bill: ₹{customer['balance_inr']:.2f}"
+        balance_info = (
+            f"Postpaid account. Outstanding bill: ₹{customer['balance_inr']:.2f}"
+        )
         period = f"Next bill date: {customer['next_bill_date']}"
     else:
         balance_info = f"Prepaid balance: ₹{customer['balance_inr']:.2f}"
@@ -185,7 +177,9 @@ def check_network_status(region: str = "default") -> str:
 
 
 @tool
-def get_plan_recommendation(usage_type: str, data_gb: int = 0, voice_min: int = 0) -> str:
+def get_plan_recommendation(
+    usage_type: str, data_gb: int = 0, voice_min: int = 0
+) -> str:
     """Recommend a Lauki Phones plan based on customer usage patterns."""
     usage_type = usage_type.lower().strip()
 
@@ -211,7 +205,7 @@ def get_plan_recommendation(usage_type: str, data_gb: int = 0, voice_min: int = 
     if plan:
         return (
             f"{reason}. Plan: {recommended}. "
-            f"Price: ₹{plan['price']}/month, {plan['data']} data, "
+            f"Price: ₹{plan['price']} for {plan['validity']}, {plan['data']} data, "
             f"{plan['voice']} voice, {plan['sms']} SMS. "
             f"Benefits: {', '.join(plan['benefits'])}."
         )
@@ -295,4 +289,4 @@ ALL_TOOLS = [
 ]
 
 llm = ChatGroq(model=settings.groq_model, temperature=0.0)
-lauki_agent = create_agent(model=llm, tools=ALL_TOOLS, system_prompt=SYSTEM_PROMPT)
+lauki_agent = create_react_agent(model=llm, tools=ALL_TOOLS, prompt=SYSTEM_PROMPT)

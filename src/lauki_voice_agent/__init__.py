@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from lauki-voice-agent!")
+"""Lauki Phones voice agent."""
